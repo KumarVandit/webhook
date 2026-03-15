@@ -4,6 +4,21 @@ import { db, webhookConfigs } from "@turbobun/db";
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
+const SIGNING_SECRET_BYTE_LENGTH = 32 as const;
+
+function generateSigningSecret(): string {
+  return randomBytes(SIGNING_SECRET_BYTE_LENGTH).toString("hex");
+}
+
+function isDbError(err: unknown): err is Error & { code: string } {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    typeof (err as Record<string, unknown>).code === "string"
+  );
+}
+
 export async function POST(request: Request): Promise<NextResponse> {
   let body: unknown;
   try {
@@ -69,44 +84,89 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  const signingSecret = randomBytes(32).toString("hex");
+  let result: { id: string; signingSecret: string; created: boolean };
 
-  const existing = await db
-    .select({ id: webhookConfigs.id })
-    .from(webhookConfigs)
-    .where(
-      and(
-        eq(webhookConfigs.serverUrl, serverUrl),
-        eq(webhookConfigs.webhook, webhookUrl)
-      )
-    )
-    .limit(1);
+  try {
+    result = await db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({
+          id: webhookConfigs.id,
+          apiKey: webhookConfigs.apiKey,
+          signingSecret: webhookConfigs.signingSecret,
+        })
+        .from(webhookConfigs)
+        .where(
+          and(
+            eq(webhookConfigs.serverUrl, serverUrl),
+            eq(webhookConfigs.webhook, webhookUrl)
+          )
+        )
+        .limit(1)
+        .for("update");
 
-  if (existing.length > 0) {
-    await db
-      .update(webhookConfigs)
-      .set({
-        apiKey,
-        signingSecret,
-        updatedAt: new Date(),
-      })
-      .where(eq(webhookConfigs.id, existing[0].id));
+      if (existing) {
+        if (existing.apiKey !== apiKey) {
+          const signingSecret = generateSigningSecret();
+          await tx
+            .update(webhookConfigs)
+            .set({ apiKey, signingSecret, updatedAt: new Date() })
+            .where(eq(webhookConfigs.id, existing.id));
+          return { id: existing.id, signingSecret, created: false };
+        }
+        return { id: existing.id, signingSecret: existing.signingSecret, created: false };
+      }
 
-    return NextResponse.json({
-      id: existing[0].id,
-      signingSecret,
+      const signingSecret = generateSigningSecret();
+      const [inserted] = await tx
+        .insert(webhookConfigs)
+        .values({ serverUrl, apiKey, webhook: webhookUrl, signingSecret })
+        .returning({ id: webhookConfigs.id });
+      return { id: inserted.id, signingSecret, created: true };
     });
+  } catch (error) {
+    const isUniqueViolation = isDbError(error) && error.code === "23505";
+
+    if (isUniqueViolation) {
+      const [existing] = await db
+        .select({
+          id: webhookConfigs.id,
+          apiKey: webhookConfigs.apiKey,
+          signingSecret: webhookConfigs.signingSecret,
+        })
+        .from(webhookConfigs)
+        .where(
+          and(
+            eq(webhookConfigs.serverUrl, serverUrl),
+            eq(webhookConfigs.webhook, webhookUrl)
+          )
+        )
+        .limit(1);
+
+      if (existing) {
+        if (existing.apiKey !== apiKey) {
+          const signingSecret = generateSigningSecret();
+          await db
+            .update(webhookConfigs)
+            .set({ apiKey, signingSecret, updatedAt: new Date() })
+            .where(eq(webhookConfigs.id, existing.id));
+          return NextResponse.json({ id: existing.id, signingSecret });
+        }
+        return NextResponse.json({
+          id: existing.id,
+          signingSecret: existing.signingSecret,
+        });
+      }
+    }
+
+    console.error("Failed to upsert webhook config:", error);
+    return NextResponse.json(
+      { error: "Internal server error." },
+      { status: 500 }
+    );
   }
 
-  const [inserted] = await db
-    .insert(webhookConfigs)
-    .values({
-      serverUrl,
-      apiKey,
-      webhook: webhookUrl,
-      signingSecret,
-    })
-    .returning({ id: webhookConfigs.id });
-
-  return NextResponse.json({ id: inserted.id, signingSecret }, { status: 201 });
+  return NextResponse.json(
+    { id: result.id, signingSecret: result.signingSecret },
+    { status: result.created ? 201 : 200 }
+  );
 }
