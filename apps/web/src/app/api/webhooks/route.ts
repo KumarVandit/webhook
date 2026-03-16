@@ -2,9 +2,10 @@ import { randomBytes } from "node:crypto";
 import { AdvancedIMessageKit } from "@photon-ai/advanced-imessage-kit";
 import { db, webhookConfigs } from "@turbobun/db";
 import { and, eq } from "drizzle-orm";
-import { NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 
 const SIGNING_SECRET_BYTE_LENGTH = 32 as const;
+const VERIFY_TIMEOUT_MS = 5000;
 
 function generateSigningSecret(): string {
   return randomBytes(SIGNING_SECRET_BYTE_LENGTH).toString("hex");
@@ -17,6 +18,35 @@ function isDbError(err: unknown): err is Error & { code: string } {
     "code" in err &&
     typeof (err as Record<string, unknown>).code === "string"
   );
+}
+
+async function verifyServerCredentials(
+  serverUrl: string,
+  apiKey: string
+): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const sdk = new AdvancedIMessageKit({
+      serverUrl,
+      apiKey,
+      logLevel: "error",
+    });
+
+    let finished = false;
+    const cleanup = (result: boolean) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      try { sdk.close(); } catch { /* already closed */ }
+      resolve(result);
+    };
+
+    const timer = setTimeout(() => cleanup(false), VERIFY_TIMEOUT_MS);
+
+    sdk.on("ready", () => cleanup(true));
+    sdk.on("error", () => cleanup(false));
+
+    sdk.connect().catch(() => cleanup(false));
+  });
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
@@ -56,28 +86,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  const verified = await new Promise<boolean>((resolve) => {
-    const sdk = new AdvancedIMessageKit({
-      serverUrl,
-      apiKey,
-      logLevel: "error",
-    });
-
-    const cleanup = (result: boolean) => {
-      clearTimeout(timer);
-      sdk.close();
-      resolve(result);
-    };
-
-    const timer = setTimeout(() => cleanup(false), 5000);
-
-    sdk.on("ready", () => cleanup(true));
-    sdk.on("error", () => cleanup(false));
-
-    sdk.connect().catch(() => cleanup(false));
-  });
-
-  if (!verified) {
+  if (!(await verifyServerCredentials(serverUrl, apiKey))) {
     return NextResponse.json(
       { error: "Invalid server URL or API key." },
       { status: 401 }
@@ -169,4 +178,81 @@ export async function POST(request: Request): Promise<NextResponse> {
     { id: result.id, signingSecret: result.signingSecret },
     { status: result.created ? 201 : 200 }
   );
+}
+
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  const serverUrl = request.nextUrl.searchParams.get("serverUrl");
+  const apiKey =
+    request.headers.get("x-api-key") ??
+    request.nextUrl.searchParams.get("apiKey");
+
+  if (!serverUrl || !apiKey) {
+    return NextResponse.json(
+      { error: "serverUrl and apiKey (header x-api-key or query param) are required." },
+      { status: 400 }
+    );
+  }
+
+  if (!(await verifyServerCredentials(serverUrl, apiKey))) {
+    return NextResponse.json(
+      { error: "Invalid server URL or API key." },
+      { status: 401 }
+    );
+  }
+
+  try {
+    const rows = await db
+      .select({
+        id: webhookConfigs.id,
+        serverUrl: webhookConfigs.serverUrl,
+        webhookUrl: webhookConfigs.webhook,
+        createdAt: webhookConfigs.createdAt,
+      })
+      .from(webhookConfigs)
+      .where(eq(webhookConfigs.serverUrl, serverUrl));
+
+    return NextResponse.json(rows);
+  } catch (error) {
+    console.error("Failed to fetch webhook configs:", error);
+    return NextResponse.json(
+      { error: "Failed to fetch webhook configs." },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(request: NextRequest): Promise<NextResponse> {
+  const serverUrl = request.nextUrl.searchParams.get("serverUrl");
+  const apiKey =
+    request.headers.get("x-api-key") ??
+    request.nextUrl.searchParams.get("apiKey");
+
+  if (!serverUrl || !apiKey) {
+    return NextResponse.json(
+      { error: "serverUrl and apiKey (header x-api-key or query param) are required." },
+      { status: 400 }
+    );
+  }
+
+  if (!(await verifyServerCredentials(serverUrl, apiKey))) {
+    return NextResponse.json(
+      { error: "Invalid server URL or API key." },
+      { status: 401 }
+    );
+  }
+
+  try {
+    const deleted = await db
+      .delete(webhookConfigs)
+      .where(eq(webhookConfigs.serverUrl, serverUrl))
+      .returning({ id: webhookConfigs.id });
+
+    return NextResponse.json({ deleted: deleted.length });
+  } catch (error) {
+    console.error("Failed to delete webhook configs:", error);
+    return NextResponse.json(
+      { error: "Failed to delete webhook configs." },
+      { status: 500 }
+    );
+  }
 }
