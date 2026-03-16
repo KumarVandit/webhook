@@ -34,6 +34,7 @@ const FORWARDED_EVENTS: PhotonEventName[] = [
 
 export class SDKPool {
   private readonly instances = new Map<string, AdvancedIMessageKit>();
+  private readonly connecting = new Map<string, Promise<void>>();
   private store!: ConfigStore;
 
   async initialize(store: ConfigStore): Promise<void> {
@@ -51,6 +52,23 @@ export class SDKPool {
   }
 
   async add(serverUrl: string, apiKey: string): Promise<void> {
+    if (this.instances.has(serverUrl)) {
+      return;
+    }
+
+    const inflight = this.connecting.get(serverUrl);
+    if (inflight) {
+      return inflight;
+    }
+
+    const connectPromise = this.doConnect(serverUrl, apiKey);
+    this.connecting.set(serverUrl, connectPromise);
+    return connectPromise;
+  }
+
+  private async doConnect(serverUrl: string, apiKey: string): Promise<void> {
+    // Yield so the caller can store this promise in `connecting` before work begins.
+    await Promise.resolve();
     try {
       const sdk = new AdvancedIMessageKit({ serverUrl, apiKey });
       await sdk.connect();
@@ -59,6 +77,8 @@ export class SDKPool {
       console.log(`SDK connected: ${serverUrl}`);
     } catch (error) {
       console.error(`Failed to connect SDK for ${serverUrl}:`, error);
+    } finally {
+      this.connecting.delete(serverUrl);
     }
   }
 
@@ -132,19 +152,33 @@ export class SDKPool {
   }
 
   async remove(serverUrl: string): Promise<void> {
+    const inflight = this.connecting.get(serverUrl);
+    if (inflight) {
+      await inflight;
+    }
+
     const sdk = this.instances.get(serverUrl);
     if (!sdk) {
       return;
     }
 
-    try {
-      await sdk.close();
-      console.log(`SDK closed: ${serverUrl}`);
-    } catch (error) {
-      console.error(`Error closing SDK for ${serverUrl}:`, error);
-    }
-
+    // Remove from instances first so concurrent add()/remove() calls
+    // won't see or double-close this SDK.
     this.instances.delete(serverUrl);
+
+    const closePromise = (async () => {
+      try {
+        await sdk.close();
+        console.log(`SDK closed: ${serverUrl}`);
+      } catch (error) {
+        console.error(`Error closing SDK for ${serverUrl}:`, error);
+      } finally {
+        this.connecting.delete(serverUrl);
+      }
+    })();
+
+    this.connecting.set(serverUrl, closePromise);
+    await closePromise;
   }
 
   async update(serverUrl: string, apiKey: string): Promise<void> {
