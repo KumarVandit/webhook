@@ -166,6 +166,85 @@ fn verify_photon_webhook(raw_body: &str, signing_secret: &str, signature: &str, 
 }
 ```
 
+## REST API
+
+The web service exposes a REST API for programmatic webhook management.
+
+### Register or update a webhook
+
+```
+POST /api/webhooks
+Content-Type: application/json
+```
+
+```json
+{
+  "serverUrl": "https://your-imessage-server.com",
+  "apiKey": "your-api-key",
+  "webhookUrl": "https://your-endpoint.com/hook"
+}
+```
+
+Verifies the server credentials before saving. Returns the webhook ID and signing secret.
+
+```json
+{ "id": "<uuid>", "signingSecret": "<64-char hex>" }
+```
+
+- `201` — created
+- `200` — already existed (signing secret unchanged unless API key changed)
+- `401` — invalid server URL or API key
+
+---
+
+### List webhooks for a server
+
+```
+GET /api/webhooks?serverUrl=<url>&apiKey=<key>
+```
+
+The API key can also be passed as an `x-api-key` header. Verifies credentials before returning.
+
+```json
+[
+  {
+    "id": "<uuid>",
+    "serverUrl": "https://your-imessage-server.com",
+    "webhookUrl": "https://your-endpoint.com/hook"
+  }
+]
+```
+
+---
+
+### Delete a specific webhook
+
+```
+DELETE /api/webhooks/<id>
+```
+
+```
+204 No Content
+```
+
+- `404` — webhook not found
+
+---
+
+### Delete all webhooks for a server
+
+```
+DELETE /api/webhooks?serverUrl=<url>&apiKey=<key>
+```
+
+Verifies credentials, then deletes every webhook registered to that server.
+
+```json
+{ "deleted": 3 }
+```
+
+---
+
 ## Deployment
 
 The project includes a `docker-compose.yml` for production. It expects an external Docker network named `dokploy-network` (created by [Dokploy](https://dokploy.com)):
