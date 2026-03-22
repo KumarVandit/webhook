@@ -3,6 +3,7 @@ import {
   AdvancedIMessageKit,
   type PhotonEventName,
 } from "@photon-ai/advanced-imessage-kit";
+import { db, webhookDeliveryLogs } from "@turbobun/db";
 import type { ConfigStore } from "./config-store.js";
 
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -40,20 +41,16 @@ export class SDKPool {
   async initialize(store: ConfigStore): Promise<void> {
     this.store = store;
     const entries = [...store.entries()];
-    // One SDK connection per server — all webhooks for the same server share
-    // the connection, so we use the first config's apiKey to authenticate.
     const promises = entries
       .filter(([, configs]) => configs.length > 0)
-      .map(([serverUrl, configs]) =>
-        this.add(serverUrl, configs[0].apiKey)
-      );
+      .map(([serverUrl, configs]) => this.add(serverUrl, configs[0].apiKey));
     await Promise.all(promises);
     console.log(`SDKPool initialized with ${this.instances.size} instances`);
   }
 
-  async add(serverUrl: string, apiKey: string): Promise<void> {
+  add(serverUrl: string, apiKey: string): Promise<void> {
     if (this.instances.has(serverUrl)) {
-      return;
+      return Promise.resolve();
     }
 
     const inflight = this.connecting.get(serverUrl);
@@ -67,7 +64,6 @@ export class SDKPool {
   }
 
   private async doConnect(serverUrl: string, apiKey: string): Promise<void> {
-    // Yield so the caller can store this promise in `connecting` before work begins.
     await Promise.resolve();
     try {
       const sdk = new AdvancedIMessageKit({ serverUrl, apiKey });
@@ -116,7 +112,15 @@ export class SDKPool {
           .digest("hex");
 
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+        const timeout = setTimeout(
+          () => controller.abort(),
+          REQUEST_TIMEOUT_MS
+        );
+
+        const start = Date.now();
+        let statusCode: number | null = null;
+        let success = false;
+        let error: string | null = null;
 
         try {
           const response = await fetch(config.webhook, {
@@ -130,14 +134,40 @@ export class SDKPool {
             signal: controller.signal,
           });
 
+          statusCode = response.status;
+          success = response.ok;
+
           if (!response.ok) {
+            error = `HTTP ${response.status}`;
             console.error(
               `Webhook delivery failed for ${serverUrl} → ${config.webhook} [${event}]: HTTP ${response.status}`
             );
           }
+        } catch (err) {
+          error = err instanceof Error ? err.message : "Unknown delivery error";
+          console.error(
+            `Webhook delivery error for ${serverUrl} → ${config.webhook} [${event}]:`,
+            err
+          );
         } finally {
           clearTimeout(timeout);
         }
+
+        const duration = Date.now() - start;
+
+        // Record delivery log (fire-and-forget)
+        db.insert(webhookDeliveryLogs)
+          .values({
+            webhookConfigId: config.id,
+            event,
+            statusCode,
+            success,
+            error,
+            duration,
+          })
+          .catch((logErr) => {
+            console.error("Failed to record delivery log:", logErr);
+          });
       })
     );
 
@@ -162,8 +192,6 @@ export class SDKPool {
       return;
     }
 
-    // Remove from instances first so concurrent add()/remove() calls
-    // won't see or double-close this SDK.
     this.instances.delete(serverUrl);
 
     const closePromise = (async () => {

@@ -21,10 +21,7 @@ export async function DELETE(
     .returning({ id: webhookConfigs.id });
 
   if (deleted.length === 0) {
-    return NextResponse.json(
-      { error: "Webhook not found." },
-      { status: 404 }
-    );
+    return NextResponse.json({ error: "Webhook not found." }, { status: 404 });
   }
 
   return new NextResponse(null, { status: 204 });

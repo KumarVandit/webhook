@@ -33,10 +33,16 @@ async function verifyServerCredentials(
 
     let finished = false;
     const cleanup = (result: boolean) => {
-      if (finished) return;
+      if (finished) {
+        return;
+      }
       finished = true;
       clearTimeout(timer);
-      try { sdk.close(); } catch { /* already closed */ }
+      try {
+        sdk.close();
+      } catch {
+        /* already closed */
+      }
       resolve(result);
     };
 
@@ -54,10 +60,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json(
-      { error: "Invalid JSON body." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
   const { serverUrl, apiKey, webhookUrl } = body as Record<string, unknown>;
@@ -80,10 +83,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     new URL(serverUrl);
     new URL(webhookUrl);
   } catch {
-    return NextResponse.json(
-      { error: "Invalid URL format." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Invalid URL format." }, { status: 400 });
   }
 
   if (!(await verifyServerCredentials(serverUrl, apiKey))) {
@@ -122,7 +122,11 @@ export async function POST(request: Request): Promise<NextResponse> {
             .where(eq(webhookConfigs.id, existing.id));
           return { id: existing.id, signingSecret, created: false };
         }
-        return { id: existing.id, signingSecret: existing.signingSecret, created: false };
+        return {
+          id: existing.id,
+          signingSecret: existing.signingSecret,
+          created: false,
+        };
       }
 
       const signingSecret = generateSigningSecret();
@@ -186,9 +190,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     request.headers.get("x-api-key") ??
     request.nextUrl.searchParams.get("apiKey");
 
-  if (!serverUrl || !apiKey) {
+  if (!(serverUrl && apiKey)) {
     return NextResponse.json(
-      { error: "serverUrl and apiKey (header x-api-key or query param) are required." },
+      {
+        error:
+          "serverUrl and apiKey (header x-api-key or query param) are required.",
+      },
       { status: 400 }
     );
   }
@@ -227,9 +234,12 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
     request.headers.get("x-api-key") ??
     request.nextUrl.searchParams.get("apiKey");
 
-  if (!serverUrl || !apiKey) {
+  if (!(serverUrl && apiKey)) {
     return NextResponse.json(
-      { error: "serverUrl and apiKey (header x-api-key or query param) are required." },
+      {
+        error:
+          "serverUrl and apiKey (header x-api-key or query param) are required.",
+      },
       { status: 400 }
     );
   }

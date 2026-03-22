@@ -45,6 +45,7 @@ const setupRealtimeListener = async () => {
     const payload = JSON.parse(msg.payload) as {
       operation: string;
       record: {
+        id: string;
         server_url: string;
         api_key: string;
         signing_secret: string;
@@ -53,6 +54,7 @@ const setupRealtimeListener = async () => {
     };
 
     const { operation, record } = payload;
+    const { id } = record;
     const serverUrl = record.server_url;
     const apiKey = record.api_key;
     const signingSecret = record.signing_secret;
@@ -62,7 +64,7 @@ const setupRealtimeListener = async () => {
       switch (operation) {
         case "INSERT": {
           const hadServer = store.hasServer(serverUrl);
-          store.add(serverUrl, { apiKey, signingSecret, webhook });
+          store.add(serverUrl, { id, apiKey, signingSecret, webhook });
           if (!hadServer) {
             await pool.add(serverUrl, apiKey);
           }
@@ -70,10 +72,10 @@ const setupRealtimeListener = async () => {
           break;
         }
         case "UPDATE": {
-          const before = store.getAll(serverUrl).find(
-            (c) => c.webhook === webhook
-          );
-          store.add(serverUrl, { apiKey, signingSecret, webhook });
+          const before = store
+            .getAll(serverUrl)
+            .find((c) => c.webhook === webhook);
+          store.add(serverUrl, { id, apiKey, signingSecret, webhook });
 
           if (before?.apiKey !== apiKey) {
             await pool.update(serverUrl, apiKey);

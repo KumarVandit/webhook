@@ -2,6 +2,7 @@ import { db, webhookConfigs } from "@turbobun/db";
 
 export interface WebhookConfig {
   apiKey: string;
+  id: string;
   signingSecret: string;
   webhook: string;
 }
@@ -13,6 +14,7 @@ export class ConfigStore {
     const rows = await db.select().from(webhookConfigs);
     for (const row of rows) {
       const config: WebhookConfig = {
+        id: row.id,
         apiKey: row.apiKey,
         signingSecret: row.signingSecret,
         webhook: row.webhook,

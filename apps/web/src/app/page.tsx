@@ -1,199 +1,108 @@
-import { codeToHtml } from "shiki";
-import { LANGUAGES, type Language } from "./languages";
-import { WebhookConfig } from "./webhook-config";
+"use client";
 
-const SNIPPETS: Record<Language, string> = {
-  typescript: `import { createHmac } from "node:crypto";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useAuth } from "@/lib/auth-context";
 
-// Use the raw request body string — do NOT parse then re-stringify.
-function verifyPhotonWebhook(
-  rawBody: string,
-  signingSecret: string,
-  signature: string,  // X-Photon-Signature header
-  timestamp: string,  // X-Photon-Timestamp header
-): boolean {
-  const sigBase = \`v0:\${timestamp}:\${rawBody}\`;
-  const expected = \`v0=\${createHmac("sha256", signingSecret)
-    .update(sigBase)
-    .digest("hex")}\`;
-  return expected === signature;
-}
+export default function ConnectPage() {
+  const { credentials, connect } = useAuth();
+  const router = useRouter();
+  const [isPending, setIsPending] = useState(false);
 
-// Express example
-app.post("/webhook", express.raw({ type: "application/json" }), (req, res) => {
-  const valid = verifyPhotonWebhook(
-    req.body.toString(),
-    process.env.PHOTON_SIGNING_SECRET,
-    req.headers["x-photon-signature"] as string,
-    req.headers["x-photon-timestamp"] as string,
-  );
-  if (!valid) return res.status(401).send("Unauthorized");
-  const { event, data } = JSON.parse(req.body.toString());
-  // handle event...
-  res.sendStatus(200);
-});`,
+  // If already connected, redirect to dashboard
+  if (credentials) {
+    router.replace("/dashboard/webhooks");
+    return null;
+  }
 
-  python: `import hashlib
-import hmac
-import os
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const serverUrl = formData.get("serverUrl") as string;
+    const apiKey = formData.get("apiKey") as string;
 
-from fastapi import FastAPI, Header, HTTPException, Request
-
-app = FastAPI()
-
-def verify_photon_webhook(
-    raw_body: str,
-    signing_secret: str,
-    signature: str,   # X-Photon-Signature header
-    timestamp: str,   # X-Photon-Timestamp header
-) -> bool:
-    sig_base = f"v0:{timestamp}:{raw_body}"
-    expected = "v0=" + hmac.new(
-        signing_secret.encode(),
-        sig_base.encode(),
-        hashlib.sha256,
-    ).hexdigest()
-    return hmac.compare_digest(expected, signature)
-
-@app.post("/webhook")
-async def webhook(
-    request: Request,
-    x_photon_signature: str = Header(...),
-    x_photon_timestamp: str = Header(...),
-):
-    raw_body = (await request.body()).decode()
-    if not verify_photon_webhook(
-        raw_body,
-        os.environ["PHOTON_SIGNING_SECRET"],
-        x_photon_signature,
-        x_photon_timestamp,
-    ):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    payload = await request.json()
-    event, data = payload["event"], payload["data"]
-    # handle event...
-    return {"ok": True}`,
-
-  rust: `use axum::{
-    body::Bytes,
-    extract::State,
-    http::{HeaderMap, StatusCode},
-    Router,
-};
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
-
-fn verify_photon_webhook(
-    raw_body: &str,
-    signing_secret: &str,
-    signature: &str,  // X-Photon-Signature header
-    timestamp: &str,  // X-Photon-Timestamp header
-) -> bool {
-    let sig_base = format!("v0:{}:{}", timestamp, raw_body);
-    let mut mac = Hmac::<Sha256>::new_from_slice(signing_secret.as_bytes())
-        .expect("HMAC accepts any key size");
-    mac.update(sig_base.as_bytes());
-    let expected = format!("v0={}", hex::encode(mac.finalize().into_bytes()));
-    expected == signature
-}
-
-// Axum handler
-async fn webhook(
-    State(secret): State<String>,
-    headers: HeaderMap,
-    body: Bytes,
-) -> StatusCode {
-    let sig = headers.get("x-photon-signature").and_then(|v| v.to_str().ok()).unwrap_or("");
-    let ts  = headers.get("x-photon-timestamp").and_then(|v| v.to_str().ok()).unwrap_or("");
-    let raw = std::str::from_utf8(&body).unwrap_or("");
-
-    if !verify_photon_webhook(raw, &secret, sig, ts) {
-        return StatusCode::UNAUTHORIZED;
+    if (!(serverUrl && apiKey)) {
+      toast.error("Both fields are required.");
+      return;
     }
-    // handle payload...
-    StatusCode::OK
-}`,
 
-  go: `package main
+    try {
+      new URL(serverUrl);
+    } catch {
+      toast.error("Invalid server URL format.");
+      return;
+    }
 
-import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
-	"os"
-)
+    setIsPending(true);
 
-func verifyPhotonWebhook(rawBody, signingSecret, signature, timestamp string) bool {
-	sigBase := fmt.Sprintf("v0:%s:%s", timestamp, rawBody)
-	mac := hmac.New(sha256.New, []byte(signingSecret))
-	mac.Write([]byte(sigBase))
-	expected := "v0=" + hex.EncodeToString(mac.Sum(nil))
-	return hmac.Equal([]byte(expected), []byte(signature))
-}
-
-func webhookHandler(w http.ResponseWriter, r *http.Request) {
-	body, _ := io.ReadAll(r.Body)
-	sig := r.Header.Get("X-Photon-Signature")
-	ts  := r.Header.Get("X-Photon-Timestamp")
-
-	if !verifyPhotonWebhook(string(body), os.Getenv("PHOTON_SIGNING_SECRET"), sig, ts) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-	var payload struct {
-		Event string          \`json:"event"\`
-		Data  json.RawMessage \`json:"data"\`
-	}
-	json.Unmarshal(body, &payload)
-	// handle payload.Event...
-	w.WriteHeader(http.StatusOK)
-}`,
-};
-
-const PAYLOAD_SNIPPET = `import type { MessageResponse } from "@photon-ai/advanced-imessage-kit";
-
-interface WebhookPayload {
-  event:
-    | "new-message"               | "updated-message"
-    | "message-send-error"        | "chat-read-status-changed"
-    | "group-name-change"         | "participant-added"
-    | "participant-removed"       | "participant-left"
-    | "group-icon-changed"        | "group-icon-removed"
-    | "typing-indicator"          | "new-server"
-    | "server-update"             | "server-update-downloading"
-    | "server-update-installing"  | "ft-call-status-changed"
-    | "new-findmy-location"
-    | "scheduled-message-created" | "scheduled-message-updated"
-    | "scheduled-message-deleted" | "scheduled-message-sent"
-    | "scheduled-message-error";
-  data: MessageResponse;
-}`;
-
-export default async function Home() {
-  const [highlightedSnippets, highlightedPayload] = await Promise.all([
-    Promise.all(
-      LANGUAGES.map(async ({ id: lang }) => {
-        const html = await codeToHtml(SNIPPETS[lang], {
-          lang,
-          themes: { light: "github-light", dark: "github-dark-dimmed" },
-        });
-        return [lang, html] as [Language, string];
+    const promise = fetch(
+      `/api/webhooks?serverUrl=${encodeURIComponent(serverUrl)}`,
+      { headers: { "x-api-key": apiKey } }
+    )
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error("Invalid server URL or API key.");
+        }
+        connect({ serverUrl, apiKey });
+        router.push("/dashboard/webhooks");
       })
-    ).then(Object.fromEntries<string>),
-    codeToHtml(PAYLOAD_SNIPPET, {
-      lang: "typescript",
-      themes: { light: "github-light", dark: "github-dark-dimmed" },
-    }),
-  ]);
+      .finally(() => setIsPending(false));
+
+    toast.promise(promise, {
+      loading: "Verifying credentials...",
+      success: "Connected successfully.",
+      error: (err) => err.message,
+    });
+  };
 
   return (
-    <WebhookConfig
-      highlightedPayload={highlightedPayload}
-      highlightedSnippets={highlightedSnippets as Record<Language, string>}
-    />
+    <div className="flex min-h-screen items-center justify-center bg-background px-4 font-sans">
+      <Card className="w-full max-w-md">
+        <CardHeader className="text-center">
+          <CardTitle className="text-2xl">Photon Webhook</CardTitle>
+          <CardDescription>
+            Connect to your Advanced iMessage Kit server to manage webhooks.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="serverUrl">Server URL</Label>
+              <Input
+                id="serverUrl"
+                name="serverUrl"
+                placeholder="https://your-server.example.com"
+                required
+                type="url"
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="apiKey">API Key</Label>
+              <Input
+                id="apiKey"
+                name="apiKey"
+                placeholder="your-api-key"
+                required
+                type="password"
+              />
+            </div>
+            <Button className="mt-2 w-full" disabled={isPending} type="submit">
+              {isPending ? "Connecting..." : "Connect"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
