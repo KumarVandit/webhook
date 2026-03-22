@@ -83,8 +83,8 @@ export default function CreateWebhookPage() {
 
   if (signingSecret) {
     return (
-      <div className="mx-auto max-w-lg">
-        <Card>
+      <div className="mx-auto w-full">
+        <Card className="w-full">
           <CardHeader>
             <CardTitle>Webhook Created</CardTitle>
             <CardDescription>
@@ -92,7 +92,7 @@ export default function CreateWebhookPage() {
               again.
             </CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-col gap-4">
+          <CardContent className="flex flex-col gap-4 w-full">
             <div className="flex flex-col gap-2">
               <Label>Signing Secret</Label>
               <div className="relative">
@@ -135,8 +135,8 @@ export default function CreateWebhookPage() {
   }
 
   return (
-    <div className="mx-auto max-w-lg">
-      <Card>
+    <div className="mx-auto w-full">
+      <Card className="w-full">
         <CardHeader>
           <CardTitle>Create Webhook</CardTitle>
           <CardDescription>

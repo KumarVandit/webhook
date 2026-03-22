@@ -11,6 +11,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/lib/auth-context";
+import Image from "next/image";
 
 export default function DashboardLayout({
   children,
@@ -82,8 +83,8 @@ export default function DashboardLayout({
           </div>
         }
         logo={
-          <span className="font-semibold text-lg text-white tracking-tight">
-            Photon Webhook
+          <span className="font-semibold text-lg text-white tracking-tight flex items-center">
+            <Image src="/photon-logo-text.png" alt="Photon Logo" width={100} height={30} />
           </span>
         }
         navItems={navItems}
@@ -91,9 +92,6 @@ export default function DashboardLayout({
       <SidebarLayout>
         <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-zinc-200 border-b bg-background px-6 dark:border-zinc-800">
           <SidebarTrigger />
-          <h2 className="font-semibold text-lg">
-            {navItems.find((item) => item.active)?.label ?? "Dashboard"}
-          </h2>
         </header>
         <main className="p-6">{children}</main>
       </SidebarLayout>
