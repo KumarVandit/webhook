@@ -12,22 +12,22 @@ export type ErrorCategory =
   | "upstream";
 
 export interface ErrorResponseBody {
-  error: string;
-  code: string;
-  status: number;
   category: ErrorCategory;
-  retryable: boolean;
-  retry_after?: number;
-  suggested_action: string;
+  code: string;
+  error: string;
   request_id: string;
+  retry_after?: number;
+  retryable: boolean;
+  status: number;
+  suggested_action: string;
   timestamp: string;
 }
 
 interface ErrorCode {
-  status: number;
   category: ErrorCategory;
-  retryable: boolean;
   retry_after?: number;
+  retryable: boolean;
+  status: number;
   suggested_action: string;
 }
 

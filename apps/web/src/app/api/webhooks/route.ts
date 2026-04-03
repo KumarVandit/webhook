@@ -23,7 +23,7 @@ function isDbError(err: unknown): err is Error & { code: string } {
   );
 }
 
-async function verifyServerCredentials(
+function verifyServerCredentials(
   serverUrl: string,
   apiKey: string
 ): Promise<VerifyResult> {
@@ -36,7 +36,9 @@ async function verifyServerCredentials(
 
     let finished = false;
     const cleanup = (result: VerifyResult) => {
-      if (finished) return;
+      if (finished) {
+        return;
+      }
       finished = true;
       clearTimeout(timer);
       try {
@@ -57,7 +59,9 @@ async function verifyServerCredentials(
 }
 
 function verifyOrError(result: VerifyResult): NextResponse | null {
-  if (result === "ok") return null;
+  if (result === "ok") {
+    return null;
+  }
   if (result === "timeout") {
     return createErrorResponse(
       "CREDENTIAL_VERIFICATION_TIMEOUT",
@@ -106,7 +110,9 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   const verifyResult = await verifyServerCredentials(serverUrl, apiKey);
   const verifyError = verifyOrError(verifyResult);
-  if (verifyError) return verifyError;
+  if (verifyError) {
+    return verifyError;
+  }
 
   let result: { id: string; signingSecret: string; created: boolean };
 
@@ -217,7 +223,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     request.headers.get("x-api-key") ??
     request.nextUrl.searchParams.get("apiKey");
 
-  if (!serverUrl || !apiKey) {
+  if (!(serverUrl && apiKey)) {
     return createErrorResponse(
       "MISSING_QUERY_PARAMS",
       "serverUrl and apiKey (header x-api-key or query param) are required."
@@ -226,7 +232,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const verifyResult = await verifyServerCredentials(serverUrl, apiKey);
   const verifyError = verifyOrError(verifyResult);
-  if (verifyError) return verifyError;
+  if (verifyError) {
+    return verifyError;
+  }
 
   try {
     const rows = await db
@@ -255,7 +263,7 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
     request.headers.get("x-api-key") ??
     request.nextUrl.searchParams.get("apiKey");
 
-  if (!serverUrl || !apiKey) {
+  if (!(serverUrl && apiKey)) {
     return createErrorResponse(
       "MISSING_QUERY_PARAMS",
       "serverUrl and apiKey (header x-api-key or query param) are required."
@@ -264,7 +272,9 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
 
   const verifyResult = await verifyServerCredentials(serverUrl, apiKey);
   const verifyError = verifyOrError(verifyResult);
-  if (verifyError) return verifyError;
+  if (verifyError) {
+    return verifyError;
+  }
 
   try {
     const deleted = await db

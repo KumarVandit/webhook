@@ -23,10 +23,7 @@ export async function DELETE(
       .returning({ id: webhookConfigs.id });
 
     if (deleted.length === 0) {
-      return createErrorResponse(
-        "WEBHOOK_NOT_FOUND",
-        "Webhook not found."
-      );
+      return createErrorResponse("WEBHOOK_NOT_FOUND", "Webhook not found.");
     }
 
     return new NextResponse(null, { status: 204 });
